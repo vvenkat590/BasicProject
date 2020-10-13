@@ -1,0 +1,107 @@
+select AdminDept,LineDept,BE,OB,SA,fdsum,Budget_Release,fintarget_upto_prev,fintarget_curr,fintarget_upto_curr,finprogress_upto_prev,finprogress_curr,finprogress_upto_curr,monthly_target,cum_target,tot_alloc,COALESCE(prevTAASum,0) prevTAASum,
+COALESCE(prevPROGSum,0) prevPROGSum,COALESCE(prev_total_alloc,0) prev_total_alloc,curr.departmentcode,curr.group_dept from
+(
+select d.dept_english as AdminDept,'test' as LineDept,COALESCE(sum(BE),0) BE,COALESCE(sum(OB),0) OB,COALESCE(sum(SA),0) SA,COALESCE(sum(TAA),0) as fdsum,COALESCE(sum(Budget_Release),0) as Budget_Release,COALESCE(sum((TAA)/12) * (1) ,0) as fintarget_upto_prev,
+COALESCE(sum((TAA)/12),0) as fintarget_curr,COALESCE(sum((TAA)/12) * (2) ,0) as fintarget_upto_curr,COALESCE(sum(finprogress_upto_prev),0) as finprogress_upto_prev, COALESCE(sum(finprogress_curr),0) as finprogress_curr, COALESCE(sum(finprogress_upto_curr),0) as finprogress_upto_curr,
+(nvl(ROUND((sum(finprogress_curr) *100/nullif(sum((TAA)/12),0)),2),0)) monthly_target,(nvl(ROUND((sum(finprogress_upto_curr) *100/nullif(sum((TAA)/12) * (2),0)),2),0)) cum_target, (nvl(ROUND((sum(finprogress_upto_curr) *100/nullif(sum(TAA),0)),2),0)) tot_alloc,
+ct.departmentcode,ct.group_dept from
+(
+select fin.dept_eng as dept_eng,fin.BE,fin.OB,fin.SA,fin.TAA,fin.fintarget_upto_prev, fin.fintarget_curr, fin.fintarget_upto_curr,fin.finprogress_upto_prev,fin.finprogress_curr,fin.finprogress_upto_curr,rel.Budget_Release,fin.departmentcode,fin.departmentline, fin.group_dept, fin.line_dept 
+from
+(
+select grandtotal.dept_eng as dept_eng,grandtotal.BE,grandtotal.OB,grandtotal.SA,grandtotal.TAA,target.fintarget_upto_prev, target.fintarget_curr, target.fintarget_upto_curr,target.finprogress_upto_prev,target.finprogress_curr,target.finprogress_upto_curr,grandtotal.departmentcode,grandtotal.departmentline,grandtotal.group_dept, grandtotal.line_dept 
+from
+( 
+select fds.dept_eng,total.BE,total.OB,total.SA,total.TAA,fds.departmentcode,fds.departmentline,fds.group_dept, fds.line_dept 
+from
+(
+select d.dept_english as dept_eng, fd.departmentcode,fd.departmentline, d.group_dept, d.line_dept from misdss.mm_fd_allotment fd, misdss.mm_department d where fd.departmentcode != fd.departmentline and fd.departmentline != '0.0' and fd.departmentcode = d.dept_code and fd.departmentline = d.dept_line_code and fd.plan_nonplan_status='P' and fd.fin_year='2019-2020' group by d.group_dept,
+d.line_dept, fd.departmentcode, fd.departmentline, d.dept_english
+UNION
+select d.dept_english as dept_eng, fd.departmentcode,fd.departmentline, d.group_dept, d.line_dept from misdss.mm_zp_tp_fd_allotment fd, misdss.mm_department d where fd.departmentcode != fd.departmentline and fd.departmentline != '0.0' and fd.departmentcode = d.dept_code and fd.departmentline = d.dept_line_code and fd.plan_nonplan_status='P' and fd.fin_year='2019-2020' group by d.group_dept,
+d.line_dept, fd.departmentcode, fd.departmentline, d.dept_english
+)fds 
+LEFT OUTER JOIN 
+(
+select sum(BE) BE,sum(OB) OB,sum(SA) SA,sum(TAA) TAA,t.departmentcode,t.departmentline  FROM( select sum(fdm.budget_estimation) as BE,sum(fdm.opening_balance) as OB,sum(fdm.supplementary_grant) 
+as SA, sum(fdm.amount) as TAA, fdm.departmentcode,fdm.departmentline from misdss.mm_fd_allotment fdm where  fdm.fin_year='2019-2020' and fdm.plan_nonplan_status='P' and fdm.departmentcode != fdm.departmentline and fdm.departmentcode > '0' and fdm.departmentline > '0.0' 
+group by fdm.departmentcode,fdm.departmentline
+UNION ALL 
+select sum(fdm.budget_estimation) as BE,sum(fdm.opening_balance) as OB,sum(fdm.supplementary_grant) as SA, sum(fdm.amount) as TAA, fdm.departmentcode,fdm.departmentline from misdss.mm_zp_tp_fd_allotment fdm where  
+fdm.fin_year='2019-2020' and fdm.plan_nonplan_status='P' and fdm.departmentcode != fdm.departmentline and  fdm.departmentcode > '0' and fdm.departmentline > '0.0' group by fdm.departmentcode,fdm.departmentline
+)t group by t.departmentcode,t.departmentline 
+)total on fds.departmentcode=total.departmentcode and fds.departmentline=total.departmentline
+)grandtotal 
+LEFT OUTER JOIN 
+(
+select sum(fintarget_upto_prev) fintarget_upto_prev,sum(fintarget_curr) fintarget_curr,sum(fintarget_upto_curr) fintarget_upto_curr,sum(finprogress_upto_prev) finprogress_upto_prev, sum(finprogress_curr) finprogress_curr, sum(finprogress_upto_curr) finprogress_upto_curr,t.dept_code,t.dept_line_code from
+(
+select sum(case when mp.financial_target > 0 AND to_number(mp.month) <= '1' then mp.financial_target else 0 end) fintarget_upto_prev, sum(case when mp.financial_target > 0 AND to_number(mp.month) ='2' then mp.financial_target else 0 end) fintarget_curr,sum(case when mp.financial_target > 0 AND to_number(mp.month) <= '2' then mp.financial_target else 0 end) fintarget_upto_curr, sum(case when (mp.FINANCIAL_PROGRESS > 0 
+AND to_number(mp.month) <= '1'  and mp.approval_flag NOT LIKE 'R-%')  then mp.financial_progress else 0 end) finprogress_upto_prev, sum(case when (mp.FINANCIAL_PROGRESS > 0 AND to_number(mp.month) = '2'  and mp.approval_flag NOT LIKE 'R-%')  then mp.financial_progress else 0 end) finprogress_curr, sum(case when (mp.FINANCIAL_PROGRESS > 0 AND 
+to_number(mp.month) <= '2'  and mp.approval_flag NOT LIKE 'R-%')  then mp.financial_progress else 0 end) finprogress_upto_curr, mp.dept_code,mp.dept_line_code from misdss.td_mpic mp where  mp.fin_year='2019-2020' and mp.plan_nonplan_status='P' group by mp.dept_code,mp.dept_line_code 
+UNION ALL 
+select sum(case when mp.financial_target > 0 AND to_number(mp.month) <= '1' then mp.financial_target else 0 end) fintarget_upto_prev, 
+sum(case when mp.financial_target > 0 AND to_number(mp.month) = '2' then mp.financial_target else 0 end) fintarget_curr, sum(case when mp.financial_target > 0 AND to_number(mp.month) <= '2' then mp.financial_target else 0 end) fintarget_upto_curr, sum(case when (mp.FINANCIAL_PROGRESS > 0 AND 
+to_number(mp.month) <= '1'  and mp.approval_flag NOT LIKE 'R-%')  then mp.financial_progress else 0 end) finprogress_upto_prev, sum(case when (mp.FINANCIAL_PROGRESS > 0 AND to_number(mp.month) = '2'  and mp.approval_flag NOT LIKE 'R-%')  then mp.financial_progress else 0 end) finprogress_curr,
+ sum(case when (mp.FINANCIAL_PROGRESS > 0 AND to_number(mp.month) <= '2'  and mp.approval_flag NOT LIKE 'R-%')  then mp.financial_progress else 0 end) finprogress_upto_curr, mp.link_dept_code,mp.link_dept_line from misdss.mm_zp_td_mpic mp where  mp.fin_year='2019-2020'  and 
+ mp.plan_nonplan_status='P' group by mp.link_dept_code, mp.link_dept_line
+ )t group by t.dept_code,t.dept_line_code 
+ )target  on grandtotal.departmentcode=target.dept_code and grandtotal.departmentline=target.dept_line_code
+ )fin 
+ LEFT OUTER JOIN 
+ (
+ select sum(Budget_Release) Budget_Release,t.dept_code,t.dept_line_code from( select sum(case when (a.cut_release_amount) > 0 and ((to_number(EXTRACT(month from a.cut_release_date))+ 8)%12) <= '2' and
+a.release_cut_flag='R' and a.release_type='G' then a.cut_release_amount else 0 END) Budget_Release,a.dept_code,a.dept_line_code from  misdss.budget_release a   where   a.sector ='1' and a.fin_year ='2019-2020'  and  (a.auth_ddo_code = a.ddo_code and a.release_mode ='D')  
+group by a.dept_code,a.dept_line_code 
+UNION ALL 
+select sum(case when (a.cut_release_amount) > 0 and ((to_number(EXTRACT(month from a.cut_release_date))+ 8)%12) <= '2' and a.release_cut_flag='R' and a.release_type='G' then a.cut_release_amount else 0 END) Budget_Release,
+a.link_dept_code,a.link_dept_line from  misdss.mm_zp_budget_release a   where   a.sector ='2' and a.fin_year ='2019-2020'  and  (a.auth_ddo_code = a.ddo_code and a.release_mode ='D')  group by a.link_dept_code ,a.link_dept_line)t group by t.dept_code,t.dept_line_code 
+)rel  
+on rel.dept_code=fin.departmentcode and rel.dept_line_code=fin.departmentline
+ )ct,misdss.mm_department d where ct.group_dept = d.group_dept and d.group_dept = d.line_dept group by AdminDept,LineDept,ct.group_dept,ct.departmentcode
+)curr 
+LEFT OUTER JOIN
+(
+  select COALESCE(sum(prevTAA),0) as prevTAASum,COALESCE(sum(prevPROG),0) as prevPROGSum,(nvl(ROUND((sum(prevPROG) *100/nullif(sum(prevTAA),0)),2),0)) prev_total_alloc,
+ct.departmentcode,ct.group_dept from
+(
+select fin.TAA as prevTAA ,fin.finprogress_upto_curr as prevPROG,fin.departmentcode,fin.departmentline, fin.group_dept, fin.line_dept 
+from( 
+select grandtotal.TAA,target.finprogress_upto_curr,grandtotal.departmentcode,grandtotal.departmentline,grandtotal.group_dept, grandtotal.line_dept 
+from( 
+ 
+select fds.dept_eng,total.TAA,fds.departmentcode,fds.departmentline,fds.group_dept, fds.line_dept 
+from
+(
+select d.dept_english as dept_eng, fd.departmentcode,fd.departmentline, d.group_dept, d.line_dept from misdss.mm_fd_allotment fd, misdss.mm_department d where fd.departmentcode != fd.departmentline and fd.departmentline != '0.0' and fd.departmentcode = d.dept_code and fd.departmentline = d.dept_line_code and fd.plan_nonplan_status='P' 
+and fd.fin_year='2018-2019' group by d.group_dept,
+d.line_dept, fd.departmentcode, fd.departmentline, d.dept_english
+UNION
+select d.dept_english as dept_eng, fd.departmentcode,fd.departmentline, d.group_dept, d.line_dept from misdss.mm_zp_tp_fd_allotment fd, misdss.mm_department d where fd.departmentcode != fd.departmentline and fd.departmentline != '0.0' and fd.departmentcode = d.dept_code and fd.departmentline = d.dept_line_code and 
+fd.plan_nonplan_status='P' and fd.fin_year='2018-2019' group by d.group_dept,
+d.line_dept, fd.departmentcode, fd.departmentline, d.dept_english
+)fds 
+LEFT OUTER JOIN 
+(
+select sum(TAA) TAA,t.departmentcode,t.departmentline  FROM
+( 
+select sum(fdm.amount) as TAA, fdm.departmentcode,fdm.departmentline from misdss.mm_fd_allotment fdm where  fdm.fin_year='2018-2019' and fdm.plan_nonplan_status='P' and fdm.departmentcode != fdm.departmentline and fdm.departmentcode > '0' and fdm.departmentline > '0.0' 
+group by fdm.departmentcode,fdm.departmentline
+UNION ALL 
+select sum(fdm.amount) as TAA, fdm.departmentcode,fdm.departmentline from misdss.mm_zp_tp_fd_allotment fdm where  
+fdm.fin_year='2018-2019' and fdm.plan_nonplan_status='P' and fdm.departmentcode != fdm.departmentline and  fdm.departmentcode > '0' and fdm.departmentline > '0.0' 
+group by fdm.departmentcode,fdm.departmentline
+)t group by t.departmentcode,t.departmentline 
+)total on fds.departmentcode=total.departmentcode and fds.departmentline=total.departmentline
+)grandtotal 
+LEFT OUTER JOIN 
+(
+select sum(finprogress_upto_curr) finprogress_upto_curr,t.dept_code,t.dept_line_code from(
+select  sum(case when (mp.FINANCIAL_PROGRESS > 0 AND 
+to_number(mp.month) <= '2'  and mp.approval_flag NOT LIKE 'R-%')  then mp.financial_progress else 0 end) finprogress_upto_curr, mp.dept_code,mp.dept_line_code from misdss.td_mpic mp where  mp.fin_year='2018-2019' and mp.plan_nonplan_status='P' group by mp.dept_code,mp.dept_line_code 
+UNION ALL 
+select sum(case when (mp.FINANCIAL_PROGRESS > 0 AND to_number(mp.month) <= '2'  and mp.approval_flag NOT LIKE 'R-%')  then mp.financial_progress else 0 end) finprogress_upto_curr, mp.link_dept_code,mp.link_dept_line from misdss.mm_zp_td_mpic mp where  mp.fin_year='2018-2019'  and 
+ mp.plan_nonplan_status='P' group by mp.link_dept_code, mp.link_dept_line)t group by t.dept_code,t.dept_line_code )target  on grandtotal.departmentcode=target.dept_code and grandtotal.departmentline=target.dept_line_code
+)fin
+)ct,misdss.mm_department d where ct.group_dept = d.group_dept and d.group_dept = d.line_dept group by ct.group_dept,ct.departmentcode
+)prev ON curr.departmentcode=prev.departmentcode and curr.group_dept=prev.group_dept order by cum_target desc
